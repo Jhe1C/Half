@@ -6,7 +6,7 @@
   var L = window.HalfLogic;
   var cfg = window.HALF_CONFIG || {};
   var store;
-  if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) store = window.HalfSupabaseStore.create(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+  if (cfg.SUPABASE_URL && cfg.SUPABASE_ANON_KEY && window.supabase) store = window.HalfSupabaseStore.create(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY, cfg.SHARED_EMAIL);
   else store = window.HalfLocalStore;
   var app = document.getElementById('app');
 
@@ -16,7 +16,7 @@
     expenses: [], settlements: [],
     route: 'home', id: null,
     filter: 'all', month: null,
-    authTab: 'in', confirmDelete: false, confirmDelS: null, logs: [], busy: false,
+    confirmDelete: false, confirmDelS: null, logs: [], busy: false,
     online: navigator.onLine, toast: null,
     calc: null            // 目前由計算機鍵盤輸入的欄位 id
   };
@@ -81,17 +81,29 @@
   }
 
   // ---------- 資料 ----------
+  /* 進入流程：輸入共用密碼（每台裝置一次）→ 選我是誰（每台裝置一次）→ 主畫面 */
   function boot() {
-    store.init().then(function () { return store.getUser(); }).then(function (u) {
-      S.user = u;
-      if (!u) { S.phase = 'auth'; render(); return; }
-      return loadLedger();
+    store.init().then(function () { return store.hasSession(); }).then(function (has) {
+      if (!has) { S.phase = 'auth'; render(); return; }
+      return enter();
     }).catch(function (e) { S.phase = 'auth'; render(); toast(e && e.message); });
   }
-  function toSetup() { S.phase = 'setup'; render(); }
+  function enter() {
+    return store.getUser().then(function (u) {
+      S.user = u;
+      if (!u) return toPick();
+      return loadLedger();
+    });
+  }
+  function toPick() {
+    return store.getMyLedger().then(function (r) {
+      S.members = r ? r.members : [];
+      S.phase = 'pick'; render();
+    });
+  }
   function loadLedger() {
     return store.getMyLedger().then(function (r) {
-      if (!r) return toSetup();
+      if (!r) return toPick();
       setLedger(r);
       return refresh().then(function () {
         S.phase = 'ready';
@@ -213,56 +225,30 @@
   function vLoading() { return '<div class="loading">HALF · 載入中</div>'; }
 
   function vAuth() {
-    var up = S.authTab === 'up';
     return '<div class="stack grow enter">' +
-      '<div class="g meta"><span class="b" ' + c(1, 5) + '>HALF</span><span ' + c(5, 9) + '>雙人拆帳</span><span ' + c(9, 13) + '>v1.1</span></div><hr class="rule">' +
+      '<div class="g meta"><span class="b" ' + c(1, 5) + '>HALF</span><span ' + c(5, 9) + '>雙人拆帳</span></div><hr class="rule">' +
       '<div class="g" style="padding-top:20px"><h1 class="hero" ' + c(1, 13) + '>HALF</h1>' +
       '<p class="xs gray" style="grid-column:1 / 9;padding-top:16px">兩個人，一個數字。先算清楚誰欠誰，再記下錢花在哪。</p></div>' +
-      '<hr class="rule" style="margin-top:28px">' +
-      '<div class="g" style="padding-top:14px">' +
-      '<label ' + c(1, 7) + ' class="opt"><input type="radio" name="tab" id="tab-in" value="in"' + (up ? '' : ' checked') + ' data-tab="in"><span>登入</span></label>' +
-      '<label ' + c(7, 13) + ' class="opt"><input type="radio" name="tab" id="tab-up" value="up"' + (up ? ' checked' : '') + ' data-tab="up"><span>註冊新帳號</span></label></div>' +
+      '<hr class="rule" style="margin-top:28px">' + secHead('01', '輸入帳本密碼') +
       '<form id="auth-form" class="stack" novalidate>' +
-      '<div class="g field"><label for="a-email" ' + c(1, 4) + '>Email</label><input class="input" id="a-email" type="email" autocomplete="email" required ' + c(4, 13) + '></div>' +
-      '<div class="g field"><label for="a-pw" ' + c(1, 4) + '>密碼</label><input class="input" id="a-pw" type="password" minlength="6" autocomplete="' + (up ? 'new-password' : 'current-password') + '" required ' + c(4, 13) + '></div>' +
+      '<div class="g field"><label for="a-pw" ' + c(1, 4) + '>密碼</label><input class="input" id="a-pw" type="password" autocomplete="current-password" required ' + c(4, 13) + '></div>' +
       '<div class="g"><p class="err" id="a-err" ' + c(4, 13) + '></p></div>' +
-      '<div class="g" style="padding-top:12px"><button class="btn" type="submit" ' + c(1, 13) + (S.busy ? ' disabled' : '') + '>' + (up ? '建立帳號' : '登入') + '<span>→</span></button></div>' +
+      '<div class="g" style="padding-top:12px"><button class="btn" type="submit" ' + c(1, 13) + (S.busy ? ' disabled' : '') + '>進入<span>→</span></button></div>' +
       '</form><div class="grow"></div>' +
-      '<div class="g" style="padding-block:20px"><p class="xs gray" ' + c(1, 10) + '>兩個人各自註冊一個帳號，再用邀請碼連到同一本帳。</p></div></div>';
+      '<div class="g" style="padding-block:20px"><p class="xs gray" ' + c(1, 10) + '>每台裝置只需要輸入一次。</p></div></div>';
   }
 
-  function setupHead(right) {
-    return '<div class="g meta"><span class="b" ' + c(1, 5) + '>HALF</span><span ' + c(5, 9) + '>雙人拆帳</span><span ' + c(9, 13) + '>' + (right || '') + '</span></div><hr class="rule">';
-  }
-
-  function vSetup() {
-    return '<div class="stack grow enter">' + setupHead('<button class="link xs" data-act="signout" style="min-height:0">登出</button>') +
-      '<div class="g" style="padding-block:24px 8px"><h1 class="xl b" ' + c(1, 13) + '>開一本<br>兩人的帳</h1></div>' +
-      secHead('01', '我先開帳本，再邀請對方') +
-      '<form id="create-form" class="stack sec">' +
-      '<div class="g field"><label for="c-me" ' + c(1, 4) + '>你的稱呼</label><input class="input" id="c-me" maxlength="20" required placeholder="例如：阿哲" ' + c(4, 13) + '></div>' +
-      '<div class="g field"><label for="c-name" ' + c(1, 4) + '>帳本名稱</label><input class="input" id="c-name" maxlength="40" placeholder="我們的帳本" ' + c(4, 13) + '></div>' +
-      '<div class="g" style="padding-top:8px"><button class="btn" type="submit" ' + c(1, 13) + '>開新帳本<span>→</span></button></div></form>' +
-      '<hr class="rule">' + secHead('02', '對方已經開好了，我要加入') +
-      '<form id="join-form" class="stack sec">' +
-      '<div class="g field"><label for="j-code" ' + c(1, 4) + '>邀請碼</label><input class="input" id="j-code" maxlength="6" required autocapitalize="characters" placeholder="6 碼" style="grid-column:4 / 13;letter-spacing:0.2em"></div>' +
-      '<div class="g field"><label for="j-me" ' + c(1, 4) + '>你的稱呼</label><input class="input" id="j-me" maxlength="20" required ' + c(4, 13) + '></div>' +
-      '<div class="g" style="padding-top:8px"><button class="btn line" type="submit" ' + c(1, 13) + '>加入帳本<span>→</span></button></div></form>' +
-      '</div>';
-  }
-
-  function vWaiting() {
-    var body = '<p class="m b" style="grid-column:1 / 13;padding-top:24px">把這組邀請碼給對方</p>' +
-        '<p class="hero" style="grid-column:1 / 13;padding-top:8px;letter-spacing:0;font-size:clamp(48px,15vw,76px)">' + esc(S.ledger.invite_code) + '</p>' +
-        '<p class="xs gray" style="grid-column:1 / 10;padding-top:16px">對方打開這個網址、註冊後選「加入帳本」，輸入邀請碼即可。加入後這個畫面會自動更新。</p>' +
-        '<div style="grid-column:1 / 9;padding-top:20px"><button class="btn" data-act="copy-code">複製邀請碼<span>⧉</span></button></div>';
-    return metaBar() + '<div class="g enter" style="padding-top:28px">' +
-      '<span class="num" ' + c(1, 3) + '>01</span><span class="xs gray" ' + c(3, 13) + '>等待另一半加入</span>' + body +
-      '</div><div class="grow"></div>';
+  function vPick() {
+    return '<div class="stack grow enter">' +
+      '<div class="g meta"><span class="b" ' + c(1, 5) + '>HALF</span><span ' + c(5, 9) + '>雙人拆帳</span></div><hr class="rule">' +
+      '<div class="g" style="padding-block:28px 8px"><h1 class="xl w8" ' + c(1, 13) + '>你是誰？</h1>' +
+      '<p class="xs gray" style="grid-column:1 / 10;padding-top:14px">這台裝置會記住，之後可以在設定裡更換。</p></div>' +
+      '<div class="g" style="padding-block:20px;row-gap:8px">' + S.members.map(function (m) {
+        return '<button class="btn" data-pick="' + esc(m.user_id) + '" ' + c(1, 13) + ' style="min-height:64px;font-size:20px">' + esc(m.display_name) + '<span>→</span></button>';
+      }).join('') + '</div><div class="grow"></div></div>';
   }
 
   function vHome() {
-    if (!S.other) return vWaiting();
     var me = S.me.user_id;
     var sum = L.summarize(S.expenses, S.settlements, me);
     var b = sum.balance;
@@ -550,11 +536,6 @@
     }
     h += '<div class="g" style="padding-block:14px 20px"><button class="btn small" type="submit" ' + c(1, 7) + '>儲存</button></div></form>';
 
-    if (store.mode === 'cloud') {
-      h += '<hr class="rule">' + secHead(num(), '邀請碼');
-      h += '<div class="g" style="padding-block:10px 20px;align-items:center"><span class="l b" style="grid-column:1 / 8;letter-spacing:0.05em">' + esc(S.ledger.invite_code) + '</span>' +
-        '<button class="btn line small" data-act="copy-code" ' + c(8, 13) + '>複製</button></div>';
-    }
     h += '<hr class="rule">' + secHead(num(), '這台裝置');
     h += '<div class="g" style="padding-block:10px 20px;row-gap:8px">';
     if (!window.HALF_NO_EXPORT) h += '<button class="btn line small" data-act="export" ' + c(1, 13) + '>匯出全部明細（CSV）<span>↓</span></button>';
@@ -563,8 +544,10 @@
         '<button class="btn line small" data-act="reset" ' + c(1, 13) + '>重設示範資料</button>' +
         '<p class="xs gray" ' + c(1, 13) + '>目前是示範模式，資料只存在這台裝置。</p>';
     } else {
-      h += '<p class="xs gray" ' + c(1, 13) + '>登入帳號：' + esc(S.user.email || '') + '</p>' +
-        '<button class="btn line small" data-act="signout" ' + c(1, 7) + '>登出</button>';
+      h += '<p class="xs gray" ' + c(1, 13) + '>這台裝置目前是「' + esc(me.display_name) + '」在用。</p>' +
+        '<button class="btn line small" data-act="forget" ' + c(1, 13) + '>這台裝置不是我，重新選擇<span>⇄</span></button>' +
+        '<button class="btn line small" data-act="signout" ' + c(1, 13) + '>登出這台裝置<span>↗</span></button>' +
+        '<p class="xs gray" ' + c(1, 13) + '>登出後，這台裝置要重新輸入帳本密碼。</p>';
     }
     h += '</div>';
     return h;
@@ -688,7 +671,7 @@
     var v;
     if (S.phase === 'loading') v = vLoading();
     else if (S.phase === 'auth') v = vAuth();
-    else if (S.phase === 'setup') v = vSetup();
+    else if (S.phase === 'pick') v = vPick();
     else {
       switch (S.route) {
         case 'ledger': v = vLedger(); break;
@@ -718,7 +701,7 @@
 
   // ---------- 事件 ----------
   document.addEventListener('click', function (ev) {
-    var t = ev.target.closest('[data-go],[data-open],[data-act],[data-month],[data-del-s],[data-del-s-yes],[data-del-s-no]');
+    var t = ev.target.closest('[data-go],[data-open],[data-act],[data-month],[data-pick],[data-del-s],[data-del-s-yes],[data-del-s-no]');
     if (!t) return;
     if (t.hasAttribute('data-go')) { ev.preventDefault(); return go(t.getAttribute('data-go'), t.getAttribute('data-go') === 'detail' ? S.id : null); }
     if (t.hasAttribute('data-open')) {
@@ -729,6 +712,12 @@
       var ym = S.month || curYM(), y = +ym.slice(0, 4), m = +ym.slice(5, 7) + +t.getAttribute('data-month');
       if (m < 1) { m = 12; y--; } if (m > 12) { m = 1; y++; }
       S.month = y + '-' + pad(m); return render();
+    }
+    if (t.hasAttribute('data-pick')) {
+      store.pickIdentity(t.getAttribute('data-pick'));
+      S.route = 'home';
+      try { history.replaceState(null, '', '#home'); } catch (e) { /* 略過 */ }
+      return guard(enter());
     }
     if (t.hasAttribute('data-del-s')) { S.confirmDelS = t.getAttribute('data-del-s'); return render(); }
     if (t.hasAttribute('data-del-s-no')) { S.confirmDelS = null; return render(); }
@@ -748,11 +737,9 @@
       S.confirmDelete = false; render();
     } else if (act === 'delete-yes') {
       guard(store.deleteExpense(S.id)).then(refresh).then(function () { go('ledger'); toast('已刪除'); });
-    } else if (act === 'copy-code') {
-      var code = S.ledger.invite_code;
-      try {
-        navigator.clipboard.writeText(code).then(function () { toast('已複製邀請碼 ' + code); }, function () { toast('邀請碼：' + code); });
-      } catch (e) { toast('邀請碼：' + code); }
+    } else if (act === 'forget') {
+      if (unsub) { unsub(); unsub = null; }
+      store.forgetIdentity().then(function () { S.user = null; S.route = 'home'; return toPick(); });
     } else if (act === 'signout') {
       if (unsub) { unsub(); unsub = null; }
       store.signOut().then(function () { S.user = null; S.phase = 'auth'; S.route = 'home'; render(); });
@@ -763,7 +750,6 @@
 
   document.addEventListener('change', function (ev) {
     var t = ev.target;
-    if (t.hasAttribute('data-tab')) { S.authTab = t.value; return render(); }
     if (t.hasAttribute('data-filter')) { S.filter = t.value; return render(); }
     if (t.closest('#exp-form')) {
       if (t.name === 'mode') t.form.dataset.modeTouched = '1';
@@ -793,28 +779,11 @@
     ev.preventDefault();
     var f = ev.target;
     if (f.id === 'auth-form') {
-      var email = document.getElementById('a-email').value.trim();
       var pw = document.getElementById('a-pw').value;
       var err = document.getElementById('a-err');
-      if (!/^\S+@\S+\.\S+$/.test(email)) { err.textContent = '請輸入有效的 Email'; return; }
-      if (pw.length < 6) { err.textContent = '密碼至少需要 6 個字元'; return; }
-      var p = S.authTab === 'up' ? store.signUp(email, pw) : store.signIn(email, pw);
-      return guard(p).then(function () { return store.getUser(); }).then(function (u) { S.user = u; return loadLedger(); })
+      if (!pw) { err.textContent = '請輸入密碼'; return; }
+      return guard(store.signIn(pw)).then(enter)
         .catch(function (e) { var el = document.getElementById('a-err'); if (el) el.textContent = e.message; });
-    }
-    if (f.id === 'create-form') {
-      var me = document.getElementById('c-me').value.trim();
-      if (!me) return toast('請輸入你的稱呼');
-      return guard(store.createLedger(document.getElementById('c-name').value.trim(), me)).then(function () { return store.getUser(); })
-        .then(function (u) { S.user = u; return loadLedger(); });
-    }
-    if (f.id === 'join-form') {
-      var code = document.getElementById('j-code').value.trim();
-      var jme = document.getElementById('j-me').value.trim();
-      if (code.length !== 6) return toast('邀請碼是 6 碼');
-      if (!jme) return toast('請輸入你的稱呼');
-      return guard(store.joinLedger(code, jme)).then(function () { return store.getUser(); })
-        .then(function (u) { S.user = u; return loadLedger(); });
     }
     if (f.id === 'exp-form') {
       var v = readForm(), ferr = document.getElementById('f-err');

@@ -80,6 +80,7 @@
   var store = {
     mode: 'demo',
     init: function () { load(); return Promise.resolve(); },
+    hasSession: function () { return Promise.resolve(true); },
     getUser: function () { var s = load(); return Promise.resolve({ id: s.actingAs, email: null }); },
     signIn: function () { return Promise.resolve(); },
     signUp: function () { return Promise.resolve(); },

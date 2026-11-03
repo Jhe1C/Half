@@ -8,7 +8,8 @@ bills.json：[{id, created_at, name, amount, paid_by, is_debt}, ...]
 - is_debt = true ：paid_by 是欠錢的一方，欠對方全額 → HALF 記為「對方付、代付（全額由 paid_by 負擔）」。
 - 小數金額四捨五入到元（38.5 → 39）。
 - 均分的奇數金額，HALF 只能記整數，零頭輪流分給兩人，讓總結餘和舊程式一致。
-- 帳本建立者 = Jheyi，另一位成員 = Enting。
+- 兩個人固定為 jheyi、enting；匯入的帳記為 jheyi 建立。
+- 可重複執行：已匯入的舊編號會略過，只補新的帳（舊程式裡修改或刪除的帳不會同步）。
 """
 import json, sys, math
 from datetime import datetime, timezone, timedelta
@@ -65,28 +66,21 @@ def build(rows):
             ps = amt - os_
         ts = datetime.fromisoformat(r['created_at'])
         spent = ts.astimezone(TPE).date().isoformat()
-        var = 'jh' if payer == 'Jheyi' else 'en'
-        out.append(f"(lid, {q(title[:60])}, {q(category(title))}, {amt}, {var}, '{mode}', {ps}, {os_}, '{spent}', "
-                   f"{q('從 ledger-prime 匯入（#%s）' % r['id'])}, {q(r['created_at'])}, {q(r['created_at'])})")
+        pid = 'jheyi' if payer == 'Jheyi' else 'enting'
+        out.append(f"({q(title[:60])}, {q(category(title))}, {amt}, '{pid}', '{mode}', {ps}, {os_}, '{spent}'::date, "
+                   f"{q('從 ledger-prime 匯入（#%s）' % r['id'])}, 'jheyi', 'jheyi', {q(r['created_at'])}::timestamptz, {q(r['created_at'])}::timestamptz)")
     return out, drift, expect
 
 def main():
     rows = json.load(open(sys.argv[1], encoding='utf8'))
     values, drift, expect = build(rows)
     sys.stdout.write(f"""-- 由 tools/import_ledger_prime.py 產生：{len(values)} 筆，舊程式結餘（Enting 欠 Jheyi）= {expect:g}，換算誤差 = {drift:g}
-do $$
-declare jh uuid; en uuid; lid uuid;
-begin
-  select l.id, l.created_by into lid, jh from public.ledgers l order by l.created_at limit 1;
-  select m.user_id into en from public.members m where m.ledger_id = lid and m.user_id <> jh;
-  if lid is null or jh is null or en is null then raise exception '帳本或兩位成員還沒建立好'; end if;
-  if exists (select 1 from public.expenses where ledger_id = lid and note like '從 ledger-prime 匯入%') then
-    raise exception '已經匯入過，不重複匯入';
-  end if;
-  perform set_config('request.jwt.claims', json_build_object('sub', jh::text, 'role', 'authenticated')::text, true);
-  insert into public.expenses (ledger_id, title, category, amount, payer, split_mode, payer_share, other_share, spent_on, note, created_at, updated_at) values
-  {(','+chr(10)+'  ').join(values)};
-end $$;
+-- 以 note 的「#舊編號」判斷是否匯入過：重複執行只會補上新的帳，不會重複
+insert into public.expenses (title, category, amount, payer, split_mode, payer_share, other_share, spent_on, note, created_by, last_edited_by, created_at, updated_at)
+select v.* from (values
+  {(','+chr(10)+'  ').join(values)}
+) as v(title, category, amount, payer, split_mode, payer_share, other_share, spent_on, note, created_by, last_edited_by, created_at, updated_at)
+where not exists (select 1 from public.expenses e where e.note = v.note);
 """)
 
 if __name__ == '__main__':

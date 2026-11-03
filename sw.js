@@ -2,7 +2,7 @@
  * 快取 App 外殼，讓它能加入主畫面、離線也打得開。
  * 帳務資料一律走網路（Supabase），不快取，避免看到過期的結餘。
  * 改版時把 VERSION 加一，使用者下次開啟就會拿到新版。 */
-var VERSION = 'half-v4';
+var VERSION = 'half-v5';
 var SHELL = [
   './', './index.html', './styles.css', './config.js', './logic.js',
   './store-local.js', './store-supabase.js', './app.js', './manifest.webmanifest',
