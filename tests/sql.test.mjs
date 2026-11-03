@@ -14,6 +14,7 @@ await db.exec(`
   insert into auth.users values ('${A}'),('${B}'),('${C}');
   create function auth.uid() returns uuid language sql stable as $$ select nullif(current_setting('test.uid', true),'')::uuid $$;
   create role authenticated;
+  create role anon;
   create publication supabase_realtime;
   grant usage on schema auth to authenticated;
 `);

@@ -272,3 +272,16 @@ begin
   begin alter publication supabase_realtime add table public.settlements; exception when duplicate_object then null; end;
   begin alter publication supabase_realtime add table public.members;     exception when duplicate_object then null; end;
 end $$;
+
+-- ---------- 函式權限收斂 ----------
+-- 觸發器函式不需要被任何人直接呼叫
+revoke execute on function public.expenses_guard()    from public, anon, authenticated;
+revoke execute on function public.expenses_log()      from public, anon, authenticated;
+revoke execute on function public.settlements_guard() from public, anon, authenticated;
+-- 其他函式只給登入的人用（RLS 規則需要 is_member / is_member_of）
+revoke execute on function public.is_member(uuid)               from public, anon;
+revoke execute on function public.is_member_of(uuid, uuid)      from public, anon;
+revoke execute on function public.create_ledger(text, text)     from public, anon;
+revoke execute on function public.join_ledger(text, text)       from public, anon;
+grant  execute on function public.is_member(uuid)               to authenticated;
+grant  execute on function public.is_member_of(uuid, uuid)      to authenticated;
